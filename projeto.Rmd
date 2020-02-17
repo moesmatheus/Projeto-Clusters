@@ -1,0 +1,216 @@
+---
+title: "Projeto Cluster"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(cluster)
+library(fpc)
+library(factoextra)
+library(esquisse)
+library(NbClust)
+library(reshape2)
+library(dplyr)
+```
+
+# Carregando dados
+
+
+```{r, message=FALSE}
+
+# Carregar Dados
+dados <- read_excel("dados.xlsx", sheet = "CEREALS_2")
+
+# Escolher seed
+set.seed(18)
+
+# Selecionando Colunas
+ce = dados[2:12]
+
+# Transformando chr em factor para calcular distâncias com daisy
+ce$type=as.factor(ce$type)
+ce$mfr = as.factor(ce$mfr)
+
+```
+
+# Explorando os dados
+## Distribuição dos dados
+```{r}
+par(mfrow=c(2,5))
+for (i in colnames(ce[3:11])){
+  boxplot(ce[i], main = i)
+}
+```
+
+## Removendo os outliers
+```{r}
+ce_out = subset(ce,
+      # Regras para outliers
+       ce$rating < 80 &
+       ce$fiber < 12 &
+       ce$carbo > 0 &
+       ce$fat < 5 &
+       ce$protein < 5
+       )
+
+# Outliers removidos
+print(dim(ce)[1] - dim(ce_out)[1])
+```
+
+## Dados após remoção dos outliers
+```{r}
+par(mfrow=c(2,5))
+for (i in colnames(ce_out[3:11])){
+  boxplot(ce_out[i], main = i)
+}
+```
+
+## Correlacao entre as variaveis
+```{r}
+# Calcular correlacao
+correl=cor(ce_out[3:11]) # Selecionando apenas quantitativos
+round(correl,digits=3)
+
+```
+
+## Removendo variaveis com alta correlacao
+```{r}
+# Remover variaveis
+ce_novo=ce_out[,-c(
+  10 # Remover Potassio
+  )]  
+
+```
+
+## Selecionando Drivers
+
+```{r}
+ce_novo.drivers = ce_novo[,-c(10)]
+colnames(ce_novo.drivers)
+```
+
+# Dendograma
+
+```{r}
+ce_dend = ce_novo
+
+# Matriz de distancias
+cedist = daisy(ce_novo.drivers)
+
+# Fazer cluster
+hcb = hclust(cedist, method = 'ward.D2')
+
+# Coluna com cluster
+ce_dend$cluster = as.character(cutree(hcb, 
+       6  # Numero de clusters
+       ))
+
+# Plotar Cluster
+plot(hcb, hang = -1)
+```
+
+## Visualizacao dos resultados
+
+### Variaveis Quant
+```{r}
+par(mfrow=c(2,2))
+v = ce_dend[3:10]
+n = 1
+for (i in v){
+ boxplot(i~ce_dend$cluster, main = colnames(v)[n], xlab = NULL, ylab = NULL)
+  n = n + 1
+}
+```
+
+### Variaveis Hist 
+
+```{r}
+df = melt(ce_dend[3:11], id.vars = "cluster", variable.name = 'series' )
+
+ggplot(df, aes(x = value)) + geom_histogram(bins = 10) + 
+  facet_grid(cluster ~ series, scales = "free")
+```
+
+## Variaveis Quali
+
+```{r}
+d = group_by(ce_dend,cluster, mfr) %>% summarise(n = n())
+ggplot(data = d, aes(mfr, cluster)) +
+  geom_raster(aes(fill = n))
+
+d = group_by(ce_dend,cluster, type) %>% summarise(n = n())
+ggplot(data = d, aes(type, cluster)) +
+  geom_raster(aes(fill = n))
+```
+
+## Representacao PCA
+
+```{r}
+fviz_cluster(list(data = ce_dend[3:10], cluster = ce_dend$cluster), show.clust.cent = F) 
+```
+
+# k-moid
+```{r}
+
+ce_pamk = ce_novo
+
+# Matriz de distancias
+cedist = daisy(ce_novo.drivers)
+
+# Realizar kmoid
+kk=pamk(cedist, krange = 2:6, diss = T, critout = T )
+
+# Numero ideal de clusters
+kk$nc
+
+# Passar cluster para dataframe
+ce_pamk$cluster = kk$pamobject$clustering
+
+```
+
+## Visualizacao dos resultados
+
+### Variaveis Quant
+```{r}
+par(mfrow=c(2,2))
+v = ce_pamk[3:10]
+n = 1
+for (i in v){
+ boxplot(i~ce_pamk$cluster, main = colnames(v)[n], xlab = NULL, ylab = NULL)
+  n = n + 1
+}
+```
+
+### Variaveis Hist 
+
+```{r}
+df = melt(ce_pamk[3:11], id.vars = "cluster", variable.name = 'series' )
+
+ggplot(df, aes(x = value)) + geom_histogram(bins = 10) + 
+  facet_grid(cluster ~ series, scales = "free")
+```
+
+
+## Variaveis Quali
+
+```{r}
+d = group_by(ce_pamk,cluster, mfr) %>% summarise(n = n())
+ggplot(data = d, aes(mfr, cluster)) +
+  geom_raster(aes(fill = n))
+
+d = group_by(ce_pamk,cluster, type) %>% summarise(n = n())
+ggplot(data = d, aes(type, cluster)) +
+  geom_raster(aes(fill = n))
+```
+
+
+
+
+## Representacao PCA
+
+```{r}
+fviz_cluster(list(data = ce_pamk[3:10], cluster = ce_pamk$cluster), show.clust.cent = F) 
+```
